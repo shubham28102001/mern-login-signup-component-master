@@ -125,7 +125,7 @@ Resources:
     Type: AWS::EC2::Instance
     Properties:
       InstanceType: t2.small
-      KeyName: !Ref mern-login-signup
+      KeyName: mern-login-signup
       ImageId: ami-06e46074ae430fba6
       SecurityGroups: 
         - !Ref InstanceSecurityGroupPort
@@ -139,16 +139,17 @@ Resources:
             sudo su
             yum install git -y
             git clone https://github.com/shubham28102001/mern-login-signup-component-master.git
-            cd mern-login-signup-component-master/client/
+            cd mern-login-signup-component-master/
+            cd client/
             rm .env
-            echo "REACT_APP_BACKEND_URL=\"https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/\"" > .env
+            echo "REACT_APP_BACKEND_URL=\"https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod\"" > .env
             yum install nodejs -y
             yum install npm -y
             npm install
             npm run start&
       Tags:
         - Key: Name
-          Value: share-fast-application
+          Value: mern-login-signup-application
  
 # Outputs after stack creation
 Outputs:
