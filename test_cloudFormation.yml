@@ -138,7 +138,7 @@ Resources:
             #!/bin/bash
             sudo su
             yum install git -y
-            git clone ${GitHubLink}
+            git clone https://github.com/shubham28102001/mern-login-signup-component-master.git
             cd mern-login-signup-component-master/client/
             rm .env
             echo "REACT_APP_BACKEND_URL=\"https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod/\"" > .env
