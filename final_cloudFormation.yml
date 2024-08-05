@@ -1,0 +1,291 @@
+Resources:
+  # API Gateway Definition
+  MyApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: MyApiGateway
+
+  # API Gateway Resource Definition
+  MyApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      PathPart: '{proxy+}'
+      ParentId: !GetAtt MyApiGateway.RootResourceId
+      RestApiId: !Ref MyApiGateway
+
+  # API Gateway Method Definition
+  MyApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: ANY
+      Integration:
+        IntegrationHttpMethod: POST
+        Type: AWS_PROXY
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyLambdaFunction.Arn}/invocations
+      AuthorizationType: NONE
+      ResourceId: !Ref MyApiResource
+      RestApiId: !Ref MyApiGateway
+
+  # API Gateway Deployment Definition
+  MyApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - MyApiMethod
+    Properties:
+      RestApiId: !Ref MyApiGateway
+      StageName: prod
+
+  # API Gateway Lambda Permission Definition
+  MyApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref MyLambdaFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*'
+
+  # Lambda Function Definition
+  MyLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs20.x
+      Code:
+        S3Bucket: backend-code-bucket
+        S3Key: code.zip
+      Handler: index.handler
+      Timeout: 123
+      Role: 'arn:aws:iam::525263168599:role/LabRole'
+
+  # DynamoDB Table Definition
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: 'users'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: idIndex
+          KeySchema:
+            - AttributeName: id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: emailIndex
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  # Secrets Manager Secret Definition
+  MySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: MySecret
+      Description: My secret
+      SecretString: '{"jwtsecret": "shubhampatel"}'
+      Tags:
+        - Key: Environment
+          Value: Production
+
+  # VPC Definition
+  MyVPC:
+    Type: 'AWS::EC2::VPC'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyVPC
+      CidrBlock: '10.0.0.0/16'
+
+  # Public Subnet Definition
+  PublicSubnet:
+    Type: 'AWS::EC2::Subnet'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: PublicSubnet
+      CidrBlock: '10.0.1.0/24'
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref MyVPC
+
+  # Internet Gateway Definition
+  InternetGateway:
+    Type: 'AWS::EC2::InternetGateway'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: MyInternetGateway
+
+  # VPC Gateway Attachment Definition
+  VPCGatewayAttachment:
+    Type: 'AWS::EC2::VPCGatewayAttachment'
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref MyVPC
+
+  # Public Route Table Definition
+  PublicRouteTable:
+    Type: 'AWS::EC2::RouteTable'
+    Properties:
+      Tags:
+        - Key: Name
+          Value: PublicRouteTable
+      VpcId: !Ref MyVPC
+
+  # Route to Internet Gateway Definition
+  PublicRoute:
+    Type: 'AWS::EC2::Route'
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  # Public Subnet Route Table Association Definition
+  PublicSubnetRouteTableAssociation:
+    Type: 'AWS::EC2::SubnetRouteTableAssociation'
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  # Security Group for HTTPS Access (Port 3000) Definition
+  InstanceSecurityGroupPort:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties: 
+      GroupDescription: Allow HTTPS access through port 3000
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+
+  # Security Group for SSH Access (Port 22) Definition
+  InstanceSecurityGroupSSH:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties: 
+      GroupDescription: Allow SSH access through port 22
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+  # Security Group for HTTP Access (Port 80) Definition
+  InstanceSecurityGroupHTTP:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties: 
+      GroupDescription: Allow HTTP access through port 80
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  # Launch Configuration for Auto Scaling Definition
+  MyLaunchConfiguration:
+    Type: 'AWS::AutoScaling::LaunchConfiguration'
+    Properties:
+      KeyName: mern-login-signup
+      InstanceType: t2.small
+      ImageId: ami-06e46074ae430fba6
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            sudo su
+            yum install git -y
+            git clone https://github.com/shubham28102001/mern-login-signup-component-master.git
+            cd mern-login-signup-component-master/
+            cd client/
+            rm .env
+            echo "REACT_APP_BACKEND_URL=\"https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com/prod\"" > .env
+            yum install nodejs -y
+            yum install npm -y
+            npm install
+            npm run start&
+      SecurityGroups:
+        - !Ref InstanceSecurityGroupPort
+        - !Ref InstanceSecurityGroupSSH
+        - !Ref InstanceSecurityGroupHTTP
+
+  # Auto Scaling Group Definition
+  MyAutoScalingGroup:
+    Type: 'AWS::AutoScaling::AutoScalingGroup'
+    Properties:
+      MinSize: '1'
+      MaxSize: '3'
+      DesiredCapacity: '1'
+      Tags:
+        - Key: Name
+          Value: mern-login-signup-application
+          PropagateAtLaunch: true
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet
+      LaunchConfigurationName: !Ref MyLaunchConfiguration
+
+  # Auto Scaling Policy to Scale Out Definition
+  MyScaleOutPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref MyAutoScalingGroup
+      Cooldown: 300
+      PolicyType: SimpleScaling
+      ScalingAdjustment: 1
+
+  # Auto Scaling Policy to Scale In Definition
+  MyScaleInPolicy:
+    Type: 'AWS::AutoScaling::ScalingPolicy'
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref MyAutoScalingGroup
+      Cooldown: 300
+      PolicyType: SimpleScaling
+      ScalingAdjustment: -1
+
+  # CloudWatch Alarm to Trigger Scale Out Definition
+  MyScaleOutAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Alarm to scale out when average CPU utilization exceeds 70%'
+      AlarmActions:
+        - !Ref MyScaleOutPolicy
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref MyAutoScalingGroup
+      EvaluationPeriods: '1'
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: '300'
+      Statistic: Average
+      Threshold: '70'
+
+  # CloudWatch Alarm to Trigger Scale In Definition
+  MyScaleInAlarm:
+    Type: 'AWS::CloudWatch::Alarm'
+    Properties:
+      AlarmDescription: 'Alarm to scale in when average CPU utilization falls below 30%'
+      AlarmActions:
+        - !Ref MyScaleInPolicy
+      ComparisonOperator: LessThanThreshold
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref MyAutoScalingGroup
+      EvaluationPeriods: '1'
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Period: '300'
+      Statistic: Average
+      Threshold: '30'
